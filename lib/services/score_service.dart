@@ -1,139 +1,49 @@
-import 'dart:math';
-
-import 'package:flutter/foundation.dart';
-
-import '../models/day_task.dart';
-import '../models/user.dart';
-
-/// Final scores of one day.
-class DayResult {
-  final DateTime date;
-  final int myScore;
-  final int friendScore;
-
-  DayResult({required this.date, required this.myScore, required this.friendScore});
-
-  bool get iWon => myScore > friendScore;
-  bool get friendWon => friendScore > myScore;
-}
-
-/// Holds all app data in memory (local state).
-/// When you add Firebase later, only this file needs to change.
-class ScoreService extends ChangeNotifier {
-  static const int maxGoals = 5;
+/// Date helpers and constants.
+/// NOTE: the score itself is calculated by the Supabase database trigger.
+/// Formula (for reference): Prayers 25 + Quran 10 + Yaseen 5 + Azkar 5
+/// + Goals 10 each (max 50) + Sleep 7–8 h 5 = 100
+class ScoreService {
   static const int goalPoints = 10;
-  static const int sleepPoints = 5;
+  static const int maxGoals = 5;
   static const int maxScore = 100;
 
-  AppUser me = AppUser(name: 'You', pairCode: _generateCode());
-  AppUser? friend;
-  DayData today = DayData();
-  int friendScore = 68; // demo score until Firebase is connected
-  int streak = 4;
-  bool savedToday = false;
-  final List<DayResult> history = _demoHistory();
+  static String _two(int n) => n.toString().padLeft(2, '0');
+  static String dateKey(DateTime d) => '${d.year}-${_two(d.month)}-${_two(d.day)}';
+  static String todayKey() => dateKey(DateTime.now());
 
-  // ---------- Pairing ----------
-  void pair({required String myName, required String friendCode, String friendName = ''}) {
-    me.name = myName;
-    friend = AppUser(
-      name: friendName.trim().isEmpty ? 'Friend' : friendName.trim(),
-      pairCode: friendCode,
-    );
-    notifyListeners();
+  static DateTime today() {
+    final n = DateTime.now();
+    return DateTime(n.year, n.month, n.day);
   }
 
-  String get friendName => friend?.name ?? 'Friend';
+  /// Monday of the week that contains [d].
+  static DateTime weekStart(DateTime d) => DateTime(d.year, d.month, d.day - (d.weekday - 1));
 
-  // ---------- Scoring ----------
-  static int scoreFor(DayData d) {
-    var s = 0;
-    for (final t in d.tasks) {
-      if (t.done) s += t.points;
-    }
-    if (d.goodSleep) s += sleepPoints;
-    return min(s, maxScore);
-  }
+  static List<DateTime> weekDays(DateTime monday) =>
+      List.generate(7, (i) => DateTime(monday.year, monday.month, monday.day + i));
 
-  int get myScore => scoreFor(today);
+  /// The daily winner is decided at 10 PM.
+  static bool dayIsFinal(DateTime day) =>
+      DateTime.now().isAfter(DateTime(day.year, day.month, day.day, 22));
 
-  String get statusText {
-    final m = myScore;
-    final f = friendScore;
-    if (m > f) return "You're winning by ${m - f}! 🏆";
-    if (m == f) return "It's a tie, keep going! 🤝";
-    return '$friendName is ahead by ${f - m}. You got this! 💪';
-  }
-
-  DayResult get todayResult {
+  /// Consecutive days (ending today or yesterday) with score > 0.
+  static int streak(Map<String, int> scoresByDate) {
     final now = DateTime.now();
-    return DayResult(
-      date: DateTime(now.year, now.month, now.day),
-      myScore: myScore,
-      friendScore: friendScore,
-    );
-  }
-
-  // ---------- Actions ----------
-  void toggle(DayTask task) {
-    task.done = !task.done;
-    notifyListeners();
-  }
-
-  bool get canAddGoal => today.goals.length < maxGoals;
-
-  void addGoal(String title) {
-    if (!canAddGoal || title.trim().isEmpty) return;
-    today.tasks.add(DayTask(
-      id: 'goal_${DateTime.now().microsecondsSinceEpoch}',
-      title: title.trim(),
-      subtitle: 'Personal goal',
-      points: goalPoints,
-      category: TaskCategory.goal,
-    ));
-    notifyListeners();
-  }
-
-  void removeGoal(DayTask task) {
-    today.tasks.remove(task);
-    notifyListeners();
-  }
-
-  void setSleep(double hours) {
-    today.sleepHours = hours;
-    notifyListeners();
-  }
-
-  void saveToday() {
-    if (!savedToday) {
-      savedToday = true;
-      streak += 1;
+    var offset = (scoresByDate[todayKey()] ?? 0) > 0 ? 0 : 1;
+    var count = 0;
+    while (count < 1000) {
+      final d = DateTime(now.year, now.month, now.day - offset);
+      if ((scoresByDate[dateKey(d)] ?? 0) > 0) {
+        count++;
+        offset++;
+      } else {
+        break;
+      }
     }
-    notifyListeners();
+    return count;
   }
 
-  // ---------- Helpers ----------
-  static String _generateCode() {
-    const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
-    final r = Random();
-    return List.generate(6, (_) => chars[r.nextInt(chars.length)]).join();
-  }
-
-  static List<DayResult> _demoHistory() {
-    final now = DateTime.now();
-    final todayDate = DateTime(now.year, now.month, now.day);
-    const mine = [72, 85, 64, 90, 78, 81];
-    const theirs = [70, 79, 75, 88, 82, 76];
-    return List.generate(
-      6,
-      (i) => DayResult(
-        date: todayDate.subtract(Duration(days: 6 - i)),
-        myScore: mine[i],
-        friendScore: theirs[i],
-      ),
-    );
-  }
+  static const weekdayNames = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+  static const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  static String shortDate(DateTime d) => '${d.day} ${monthNames[d.month - 1]}';
 }
-
-/// One shared instance used by every screen.
-final scoreService = ScoreService();

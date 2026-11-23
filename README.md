@@ -1,27 +1,35 @@
-# DuoDeen: How to run it (Windows, VS Code, Android)
+# DuoDeen V2 (Supabase): setup
 
-## One-time setup (about 1 hour, mostly downloads)
-1. Install **VS Code**: https://code.visualstudio.com
-2. Install **Android Studio**: https://developer.android.com/studio
-   - Open it once, click Next through the setup wizard (it downloads the Android SDK).
-   - More Actions → SDK Manager → SDK Tools tab → tick **Android SDK Command-line Tools** → Apply.
-3. Install **Flutter**: in VS Code, open Extensions (Ctrl+Shift+X), install **Flutter** (by Dart Code).
-   Then Ctrl+Shift+P → type `Flutter: New Project`. VS Code will offer **Download SDK**, so click it and pick a folder like `C:\src`.
-   When asked, click **Add SDK to PATH**. Restart VS Code.
-4. Open a terminal in VS Code (Ctrl+`) and run:
-   ```
-   flutter doctor --android-licenses
-   ```
-   Type `y` and Enter for every question. Then run `flutter doctor`; Flutter and Android toolchain should show ✓.
+Your Supabase URL and publishable key are already in `lib/main.dart`.
+The publishable key is safe in the app because your security rules (RLS) protect the data.
+Never put the **secret** key in the app.
 
-## Create the project
-5. Ctrl+Shift+P → `Flutter: New Project` → **Application** → choose a folder → name it `duodeen`.
-6. Unzip this download. Copy its `lib` folder into your new `duodeen` folder and **Replace** when asked.
-7. Delete the file `test/widget_test.dart` (it refers to the old sample app).
+## 1. Supabase (one time, 2 minutes)
+1. Open supabase.com → your project → **SQL Editor** → **New query**.
+2. Open `supabase/fix.sql`, copy everything, paste it in, and click **Run**.
+   This does NOT recreate your tables. It only:
+   - adds the `tasbeeh_count` column
+   - turns on Realtime (live sync)
+   - adds safe pairing functions
+3. **Authentication → Sign In / Providers → Email**: make sure **Confirm email** is OFF.
 
-## Run on Android
-8. **Real phone:** Settings → About phone → tap *Build number* 7 times → back to Settings → Developer options → turn on **USB debugging**. Plug in with USB and tap **Allow**.
-   **Or emulator:** Android Studio → More Actions → Virtual Device Manager → Create device → Pixel → Next → download a system image → Finish → ▶ Play.
-9. In VS Code, click the device name at the bottom-right corner and pick your phone or emulator.
-10. Open `lib/main.dart` and press **F5**. The first build takes 3–5 minutes; later ones are fast.
-    While it runs, save a file (Ctrl+S) to see changes instantly (hot reload).
+## 2. Upload to GitHub (replace the old version)
+1. Open your `duodeen` repository → **Add file → Upload files**.
+2. Drag in **everything** from this folder: `lib`, `tool`, `supabase`, `.github`, `pubspec.yaml`, `README.md`.
+3. Click **Commit changes**.
+4. **Actions** tab → wait for the green ✓ → open it → **Artifacts → DuoDeen-APK**.
+5. Unzip it, send `app-release.apk` to your phone and install it.
+
+## 3. Or run it on your computer (VS Code)
+1. Put these files in your Flutter project folder (replace `lib` and `pubspec.yaml`).
+2. In the terminal: `flutter pub get`
+3. Connect your phone (USB debugging ON) and press **F5**.
+   Note: if you build an APK on your own computer, add
+   `<uses-permission android:name="android.permission.INTERNET"/>` to
+   `android/app/src/main/AndroidManifest.xml`, or just run `python tool/patch_android.py` once.
+
+## 4. Test that V2 works
+1. You log in on your phone; your friend logs in on hers with a different email.
+2. Profile icon (top right) → copy your pair code → your friend enters it → **Pair**.
+3. You tick Fajr → your friend's phone updates within about 2 seconds.
+4. Log out and log in again → your ticks are still there.
