@@ -17,6 +17,10 @@ Never put the **secret** key in the app.
 1. Open your `duodeen` repository → **Add file → Upload files**.
 2. Drag in **everything** from this folder: `lib`, `tool`, `supabase`, `.github`, `pubspec.yaml`, `README.md`.
 3. Click **Commit changes**.
+   IMPORTANT: GitHub usually skips the `.github` folder when you drag it.
+   Open `.github/workflows/build-apk.yml` in your repo → pencil ✏️ (Edit) →
+   select all → delete → paste the contents of this zip's `build-apk.yml` → Commit.
+   The build name in the Actions tab must say **"Build APK V2"**.
 4. **Actions** tab → wait for the green ✓ → open it → **Artifacts → DuoDeen-APK**.
 5. Unzip it, send `app-release.apk` to your phone and install it.
 
