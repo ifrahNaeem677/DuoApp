@@ -349,7 +349,7 @@ class GoalsSection extends StatelessWidget {
     final total = goals.length;
     return SectionCard(
       icon: Icons.flag_rounded,
-      title: "Today's Goals",
+      title: 'My Goals',
       subtitle: '$done/$total goals done · max ${ScoreService.maxGoals} · swipe left to delete',
       trailing: '${done * ScoreService.goalPoints}/${total * ScoreService.goalPoints} pts',
       children: [
@@ -393,6 +393,123 @@ class GoalsSection extends StatelessWidget {
             ),
           ),
         ),
+      ],
+    );
+  }
+}
+
+// ======================================================================
+// V3: PERMANENT DAILY HABITS (cannot be deleted)
+// ======================================================================
+class HabitsSection extends StatelessWidget {
+  const HabitsSection({super.key});
+
+  Future<void> _skillTap(BuildContext context) async {
+    if (duo.myToday.skillDone) {
+      showSnack(context, 'Skill already done today ✓');
+      return;
+    }
+    final err = await duo.markSkillDone();
+    if (context.mounted) showSnack(context, err ?? 'Done today! +10 pts 🔥', error: err != null);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final e = duo.myToday;
+    final items = DailyEntry.habits;
+    return SectionCard(
+      icon: Icons.lock_rounded,
+      title: 'Daily Habits',
+      subtitle: 'Permanent · cannot be deleted',
+      trailing: '${e.sectionPoints(items)}/${DailyEntry.sectionMax(items)} pts',
+      children: [
+        TaskTile(
+          title: 'Read Book',
+          subtitle: 'Permanent daily habit',
+          points: 10,
+          done: e.readBook,
+          onTap: () => duo.updateToday((x) => x.readBook = !x.readBook),
+        ),
+        TaskTile(
+          title: 'Work On My Skill',
+          subtitle: duo.mySkill?.skillName ?? 'Your 60-day skill',
+          points: 10,
+          done: e.skillDone,
+          onTap: () => _skillTap(context),
+        ),
+      ],
+    );
+  }
+}
+
+// ======================================================================
+// V3: PARTNER'S GOALS TODAY (read-only, live)
+// ======================================================================
+class PartnerGoalsSection extends StatelessWidget {
+  const PartnerGoalsSection({super.key});
+
+  Widget _row(String title, bool done) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 6),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+        decoration: BoxDecoration(
+          color: done ? AppColors.gold.withAlpha(35) : AppColors.bg,
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: Row(
+          children: [
+            Icon(done ? Icons.check_circle_rounded : Icons.radio_button_unchecked_rounded,
+                color: done ? AppColors.primary : Colors.grey.shade400, size: 22),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Text(title,
+                  style: TextStyle(
+                    fontWeight: FontWeight.w600,
+                    color: done ? AppColors.primaryDark : AppColors.textDark,
+                    decoration: done ? TextDecoration.lineThrough : null,
+                  )),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (!duo.isPaired) return const SizedBox.shrink();
+    final name = duo.partnerName;
+    final e = duo.partnerToday;
+    final goals = e?.goals ?? [];
+    final done = goals.where((g) => g.done).length;
+    return SectionCard(
+      icon: Icons.visibility_rounded,
+      title: "$name's Goals Today",
+      subtitle: 'Read-only · updates live',
+      trailing: '${e?.score ?? 0} pts',
+      children: [
+        Text('$name: $done/${goals.length} goals done',
+            style: const TextStyle(fontWeight: FontWeight.w800, color: AppColors.primaryDark)),
+        const SizedBox(height: 6),
+        ClipRRect(
+          borderRadius: BorderRadius.circular(10),
+          child: LinearProgressIndicator(
+            value: goals.isEmpty ? 0 : done / goals.length,
+            minHeight: 8,
+            backgroundColor: AppColors.bg,
+            valueColor: const AlwaysStoppedAnimation(AppColors.gold),
+          ),
+        ),
+        const SizedBox(height: 12),
+        if (goals.isEmpty)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 8),
+            child: Text("$name hasn't added goals today yet.", style: const TextStyle(color: AppColors.textMuted)),
+          ),
+        for (final g in goals) _row(g.title, g.done),
+        _row('Read Book', e?.readBook ?? false),
+        _row('Work On My Skill', e?.skillDone ?? false),
       ],
     );
   }

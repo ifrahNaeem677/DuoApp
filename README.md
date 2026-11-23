@@ -1,39 +1,33 @@
-# DuoDeen V2 (Supabase): setup
+# DuoDeen V3: setup
 
-Your Supabase URL and publishable key are already in `lib/main.dart`.
-The publishable key is safe in the app because your security rules (RLS) protect the data.
-Never put the **secret** key in the app.
+Supabase URL + publishable key are already in `lib/main.dart`. Never put the secret key in the app.
 
-## 1. Supabase (one time, 2 minutes)
-1. Open supabase.com → your project → **SQL Editor** → **New query**.
-2. Open `supabase/fix.sql`, copy everything, paste it in, and click **Run**.
-   This does NOT recreate your tables. It only:
-   - adds the `tasbeeh_count` column
-   - turns on Realtime (live sync)
-   - adds safe pairing functions
-3. **Authentication → Sign In / Providers → Email**: make sure **Confirm email** is OFF.
+## 1. Supabase (one time)
+SQL Editor → New query → paste **all** of `supabase/duodeen_v3.sql` → **Run**.
+It keeps profiles / pairs / daily_entries and adds:
+- `permanent_skills` table (60-day skill, locked until finished)
+- `messages` table (chat + snaps)
+- Storage bucket `snaps` (public read, logged-in users upload)
+- columns `read_book`, `skill_done`, `tasbeeh_count` on daily_entries
+- score V3 (max 120 = old 100 + Read Book 10 + Work On My Skill 10)
+- realtime for live updates, safe pairing functions
 
-## 2. Upload to GitHub (replace the old version)
-1. Open your `duodeen` repository → **Add file → Upload files**.
-2. Drag in **everything** from this folder: `lib`, `tool`, `supabase`, `.github`, `pubspec.yaml`, `README.md`.
-3. Click **Commit changes**.
-   IMPORTANT: GitHub usually skips the `.github` folder when you drag it.
-   Open `.github/workflows/build-apk.yml` in your repo → pencil ✏️ (Edit) →
-   select all → delete → paste the contents of this zip's `build-apk.yml` → Commit.
-   The build name in the Actions tab must say **"Build APK V2"**.
-4. **Actions** tab → wait for the green ✓ → open it → **Artifacts → DuoDeen-APK**.
-5. Unzip it, send `app-release.apk` to your phone and install it.
+## 2. Upload to GitHub
+1. Repo → **Add file → Upload files** → drag `lib`, `tool`, `supabase`, `pubspec.yaml`, `README.md` → **Commit**.
+2. Build file (GitHub skips the `.github` folder when dragging):
+   open `.github/workflows/build-apk.yml` in the repo → ✏️ Edit → select all → paste this zip's
+   `.github/workflows/build-apk.yml` → Commit.
+   (If your Actions run is already named "Build APK V2", that also works. The V3 build fix is in `tool/patch_android.py`.)
+3. **Actions** → green ✓ → **Artifacts → DuoDeen-APK** → install `app-release.apk`.
 
-## 3. Or run it on your computer (VS Code)
-1. Put these files in your Flutter project folder (replace `lib` and `pubspec.yaml`).
-2. In the terminal: `flutter pub get`
-3. Connect your phone (USB debugging ON) and press **F5**.
-   Note: if you build an APK on your own computer, add
-   `<uses-permission android:name="android.permission.INTERNET"/>` to
-   `android/app/src/main/AndroidManifest.xml`, or just run `python tool/patch_android.py` once.
+## Build fix (automatic)
+`tool/patch_android.py` runs in the GitHub build after `flutter create` and sets in
+`android/app/build.gradle.kts`: `isCoreLibraryDesugaringEnabled = true`, Java/Kotlin 17,
+`coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.4")`, plus INTERNET permission.
+Building on your own computer? Run `python tool/patch_android.py` once after `flutter create .`.
 
-## 4. Test that V2 works
-1. You log in on your phone; your friend logs in on hers with a different email.
-2. Profile icon (top right) → copy your pair code → your friend enters it → **Pair**.
-3. You tick Fajr → your friend's phone updates within about 2 seconds.
-4. Log out and log in again → your ticks are still there.
+## 3. Test V3
+1. Both partners log in → each one must set their own skill (full screen, cannot skip).
+2. Home: My Skill card → **Done Today** → +10 pts, streak +1. Partner sees it in "Partner's Skill".
+3. Add a goal → partner sees it live in "Partner's Goals Today" (read-only).
+4. Chat tab → send a message and a Snap (camera or gallery) → tap the snap to view full screen.

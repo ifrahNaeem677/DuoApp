@@ -29,6 +29,7 @@ class DailyEntry {
   String? pairId;
   final String date; // YYYY-MM-DD
   bool fajr, dhuhr, asr, maghrib, isha, quran, yaseen, azkar;
+  bool readBook, skillDone; // V3 permanent daily habits
   double sleepHours;
   List<Goal> goals;
   int tasbeehCount;
@@ -47,6 +48,8 @@ class DailyEntry {
     this.quran = false,
     this.yaseen = false,
     this.azkar = false,
+    this.readBook = false,
+    this.skillDone = false,
     this.sleepHours = 7,
     List<Goal>? goals,
     this.tasbeehCount = 0,
@@ -72,6 +75,8 @@ class DailyEntry {
       quran: m['quran'] == true,
       yaseen: m['yaseen'] == true,
       azkar: m['azkar'] == true,
+      readBook: m['read_book'] == true,
+      skillDone: m['skill_done'] == true,
       sleepHours: rawSleep is num ? rawSleep.toDouble() : 7.0,
       goals: rawGoals is List
           ? rawGoals.whereType<Map>().map((g) => Goal.fromMap(Map<String, dynamic>.from(g))).toList()
@@ -94,6 +99,8 @@ class DailyEntry {
         'quran': quran,
         'yaseen': yaseen,
         'azkar': azkar,
+        'read_book': readBook,
+        'skill_done': skillDone,
         'sleep_hours': sleepHours,
         'goals': goals.map((g) => g.toMap()).toList(),
       };
@@ -106,6 +113,12 @@ class DailyEntry {
       items.where((i) => valueOf(i.key)).fold(0, (sum, i) => sum + i.points);
 
   static int sectionMax(List<DeenItem> items) => items.fold(0, (sum, i) => sum + i.points);
+
+  /// Permanent habits: always shown, cannot be deleted.
+  static const habits = [
+    DeenItem('read_book', 'Read Book', 'Permanent daily habit', 10),
+    DeenItem('skill_done', 'Work On My Skill', 'Tap "Done Today" on your skill', 10),
+  ];
 
   static const prayers = [
     DeenItem('fajr', 'Fajr', 'Dawn', 5),
@@ -130,6 +143,8 @@ class DailyEntry {
         'quran' => quran,
         'yaseen' => yaseen,
         'azkar' => azkar,
+        'read_book' => readBook,
+        'skill_done' => skillDone,
         _ => false,
       };
 
@@ -151,6 +166,10 @@ class DailyEntry {
         yaseen = v;
       case 'azkar':
         azkar = v;
+      case 'read_book':
+        readBook = v;
+      case 'skill_done':
+        skillDone = v;
     }
   }
 }

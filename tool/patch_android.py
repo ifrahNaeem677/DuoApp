@@ -2,7 +2,7 @@
 
 Adds what DuoDeen V2 needs on Android:
   * core library desugaring (required by flutter_local_notifications)
-  * Java 11+ compile options
+  * Java 17 compile options (Java + Kotlin)
   * INTERNET permission (release apps need it to reach Supabase)
   * notification permissions + receivers
   * app name "DuoDeen"
@@ -41,17 +41,29 @@ if "oreLibraryDesugaringEnabled" not in g:
         block = (
             "\n    compileOptions {\n"
             f"        {enable_line}\n"
-            + ("        sourceCompatibility = JavaVersion.VERSION_11\n        targetCompatibility = JavaVersion.VERSION_11\n"
+            + ("        sourceCompatibility = JavaVersion.VERSION_17\n        targetCompatibility = JavaVersion.VERSION_17\n"
                if kotlin_dsl else
-               "        sourceCompatibility JavaVersion.VERSION_11\n        targetCompatibility JavaVersion.VERSION_11\n")
+               "        sourceCompatibility JavaVersion.VERSION_17\n        targetCompatibility JavaVersion.VERSION_17\n")
             + "    }\n"
         )
         g, n = re.subn(r"android\s*\{", lambda m: m.group(0) + block, g, count=1)
         if n == 0:
             sys.exit("ERROR: android { } block not found in " + str(path))
 
-# 2) Java version must be at least 11 (template may say 1.8 on old Flutter)
-g = g.replace("JavaVersion.VERSION_1_8", "JavaVersion.VERSION_11")
+# 2) Java 17 everywhere (Java + Kotlin must match, otherwise the build fails)
+for old in ("JavaVersion.VERSION_1_8", "JavaVersion.VERSION_11"):
+    g = g.replace(old, "JavaVersion.VERSION_17")
+for old in ("JvmTarget.JVM_1_8", "JvmTarget.JVM_11"):
+    g = g.replace(old, "JvmTarget.JVM_17")
+g = re.sub(r'jvmTarget\s*=\s*"(1\.8|11)"', 'jvmTarget = "17"', g)
+g = re.sub(r"jvmTarget\s*=\s*'(1\.8|11)'", "jvmTarget = '17'", g)
+if "VERSION_17" not in g:
+    java_lines = (
+        "\n        sourceCompatibility = JavaVersion.VERSION_17\n        targetCompatibility = JavaVersion.VERSION_17"
+        if kotlin_dsl else
+        "\n        sourceCompatibility JavaVersion.VERSION_17\n        targetCompatibility JavaVersion.VERSION_17"
+    )
+    g = re.sub(r"compileOptions\s*\{", lambda m: m.group(0) + java_lines, g, count=1)
 
 # 3) desugar library dependency
 if "desugar_jdk_libs" not in g:
@@ -96,6 +108,7 @@ print("Patched", manifest)
 # ---------------------------------------------------------------- Verify
 final = path.read_text(encoding="utf-8")
 assert "oreLibraryDesugaringEnabled" in final and "desugar_jdk_libs" in final, "desugaring patch failed"
+assert "VERSION_17" in final, "Java 17 patch failed"
 assert "android.permission.INTERNET" in manifest.read_text(encoding="utf-8"), "INTERNET patch failed"
 print("\n----- " + str(path) + " -----\n" + final)
 print("All Android patches OK ✅")

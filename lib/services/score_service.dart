@@ -1,11 +1,11 @@
 /// Date helpers and constants.
 /// NOTE: the score itself is calculated by the Supabase database trigger.
-/// Formula (for reference): Prayers 25 + Quran 10 + Yaseen 5 + Azkar 5
-/// + Goals 10 each (max 50) + Sleep 7–8 h 5 = 100
+/// Formula V3 (for reference): Prayers 25 + Quran 10 + Yaseen 5 + Azkar 5
+/// + Goals 10 each (max 50) + Sleep 7–8 h 5 + Read Book 10 + Work On My Skill 10 = 120
 class ScoreService {
   static const int goalPoints = 10;
   static const int maxGoals = 5;
-  static const int maxScore = 100;
+  static const int maxScore = 120;
 
   static String _two(int n) => n.toString().padLeft(2, '0');
   static String dateKey(DateTime d) => '${d.year}-${_two(d.month)}-${_two(d.day)}';
@@ -45,5 +45,14 @@ class ScoreService {
 
   static const weekdayNames = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
   static const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  static String yesterdayKey() {
+    final n = DateTime.now();
+    return dateKey(DateTime(n.year, n.month, n.day - 1));
+  }
+
+  /// Whole days from [from] to [to] (date only, safe across clock changes).
+  static int daysBetween(DateTime from, DateTime to) =>
+      DateTime.utc(to.year, to.month, to.day).difference(DateTime.utc(from.year, from.month, from.day)).inDays;
+
   static String shortDate(DateTime d) => '${d.day} ${monthNames[d.month - 1]}';
 }

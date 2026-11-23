@@ -1,9 +1,12 @@
 import 'dart:async';
+import 'dart:typed_data';
 
 import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../models/day_task.dart';
+import '../models/message.dart';
+import '../models/skill.dart';
 import '../models/user.dart';
 import 'notification_service.dart';
 import 'score_service.dart';
@@ -31,8 +34,23 @@ class DuoState extends ChangeNotifier {
   String? loadError;
   SyncState sync = SyncState.synced;
 
-  /// true if the optional `tasbeeh_count` column is missing (see fix.sql)
+  /// true if the optional `tasbeeh_count` column is missing (see duodeen_v3.sql)
   bool tasbeehColumnMissing = false;
+
+  // V3: skills + chat
+  Skill? mySkill;
+  Skill? partnerSkill;
+  List<ChatMessage> messages = []; // newest first
+  bool chatReady = false;
+  String? chatError;
+  StreamSubscription<List<Map<String, dynamic>>>? _mySkillSub;
+  StreamSubscription<List<Map<String, dynamic>>>? _partnerSkillSub;
+  StreamSubscription<List<Map<String, dynamic>>>? _chatSub;
+  String? _partnerSkillFor;
+  String? _chatFor;
+
+  static const setupHint =
+      'Database setup needed for V3.\nRun supabase/duodeen_v3.sql in Supabase → SQL Editor, then tap TRY AGAIN.';
 
   final Map<String, int> _myScores = {};
   final Map<String, Map<String, int>> _tasbeehByDay = {};
@@ -61,9 +79,15 @@ class DuoState extends ChangeNotifier {
     notifyListeners();
     try {
       await _loadProfile();
+      await _loadMySkill();
       await _ensureToday();
       await _loadMyScores();
       await _setupPair(force: true);
+      _mySkillSub = supabase
+          .from('permanent_skills')
+          .stream(primaryKey: ['id'])
+          .eq('user_id', uid)
+          .listen(_onMySkillRows, onError: (_) {});
       _profileSub = supabase
           .from('profiles')
           .stream(primaryKey: ['id'])
@@ -71,6 +95,8 @@ class DuoState extends ChangeNotifier {
           .listen(_onProfileRows, onError: (_) {});
       await NotificationService.requestPermission();
       await NotificationService.scheduleDaily(fajrTime: '05:00');
+    } on _SetupNeeded {
+      loadError = setupHint;
     } catch (e) {
       loadError = 'Could not load your data.\nCheck your internet connection.\n\n$e';
     }
@@ -79,10 +105,19 @@ class DuoState extends ChangeNotifier {
   }
 
   void stop() {
-    final p = _profileSub;
-    final s = _entriesSub;
+    final subs = [_profileSub, _entriesSub, _mySkillSub, _partnerSkillSub, _chatSub];
     _profileSub = null;
     _entriesSub = null;
+    _mySkillSub = null;
+    _partnerSkillSub = null;
+    _chatSub = null;
+    _partnerSkillFor = null;
+    _chatFor = null;
+    mySkill = null;
+    partnerSkill = null;
+    messages = [];
+    chatReady = false;
+    chatError = null;
     _debounce?.cancel();
     _tasbeehDebounce?.cancel();
     _streamKey = null;
@@ -93,8 +128,9 @@ class DuoState extends ChangeNotifier {
     _hold = false;
     _started = false;
     loading = true;
-    p?.cancel();
-    s?.cancel();
+    for (final sub in subs) {
+      sub?.cancel();
+    }
   }
 
   Future<void> retry() async {
@@ -106,6 +142,7 @@ class DuoState extends ChangeNotifier {
   Future<void> refresh() async {
     try {
       await _loadProfile();
+      await _loadMySkill();
       await _ensureToday();
       await _loadMyScores();
       await _setupPair(force: true);
@@ -166,6 +203,9 @@ class DuoState extends ChangeNotifier {
           .maybeSingle();
       partner = p == null ? null : Profile.fromMap(p);
     }
+
+    _subscribePartnerSkill(partner?.id, force: force);
+    _subscribeChat(pid, force: force);
 
     final key = pid ?? 'solo:$uid';
     if (force || _streamKey != key) {
@@ -522,6 +562,224 @@ class DuoState extends ChangeNotifier {
     return '$partnerName won';
   }
 
+  // =================== V3: PERMANENT SKILL ===================
+  bool _isMissingTable(PostgrestException e) =>
+      e.code == '42P01' || e.code == 'PGRST205' || e.message.contains('permanent_skills');
+
+  Future<void> _loadMySkill() async {
+    try {
+      final rows = await supabase
+          .from('permanent_skills')
+          .select()
+          .eq('user_id', uid)
+          .eq('is_active', true)
+          .order('created_at', ascending: false)
+          .limit(1);
+      mySkill = rows.isEmpty ? null : Skill.fromMap(rows.first);
+    } on PostgrestException catch (e) {
+      if (_isMissingTable(e)) throw _SetupNeeded();
+      rethrow;
+    }
+    // Missed a day → streak resets to 0 (day count keeps going)
+    final s = mySkill;
+    if (s != null && s.streakStored > 0 && s.streak == 0) {
+      try {
+        final row = await supabase
+            .from('permanent_skills')
+            .update({'streak': 0, 'current_day': s.dayShown})
+            .eq('id', s.id)
+            .select()
+            .single();
+        mySkill = Skill.fromMap(row);
+      } catch (_) {}
+    }
+  }
+
+  Skill? _pickActive(List<Map<String, dynamic>> rows) {
+    final active = rows.where((r) => r['is_active'] != false).toList();
+    if (active.isEmpty) return null;
+    active.sort((a, b) => (b['created_at'] ?? '').toString().compareTo((a['created_at'] ?? '').toString()));
+    return Skill.fromMap(active.first);
+  }
+
+  void _onMySkillRows(List<Map<String, dynamic>> rows) {
+    mySkill = _pickActive(rows);
+    notifyListeners();
+  }
+
+  void _subscribePartnerSkill(String? partnerId, {bool force = false}) {
+    if (!force && partnerId == _partnerSkillFor) return;
+    _partnerSkillSub?.cancel();
+    _partnerSkillSub = null;
+    _partnerSkillFor = partnerId;
+    partnerSkill = null;
+    if (partnerId == null) return;
+    _partnerSkillSub = supabase
+        .from('permanent_skills')
+        .stream(primaryKey: ['id'])
+        .eq('user_id', partnerId)
+        .listen((rows) {
+      partnerSkill = _pickActive(rows);
+      notifyListeners();
+    }, onError: (_) {});
+  }
+
+  Future<String?> createSkill(String name, String action) async {
+    if (name.trim().length < 3) return 'Please write your skill name.';
+    if (action.trim().isEmpty) return 'Please write your daily action (1 line).';
+    try {
+      final row = await supabase
+          .from('permanent_skills')
+          .insert({
+            'user_id': uid,
+            'pair_id': me?.pairId,
+            'skill_name': name.trim(),
+            'daily_action': action.trim(),
+            'start_date': ScoreService.todayKey(),
+            'total_days': 60,
+            'is_active': true,
+          })
+          .select()
+          .single();
+      mySkill = Skill.fromMap(row);
+      notifyListeners();
+      return null;
+    } on PostgrestException catch (e) {
+      if (e.code == '23505') {
+        // already has an active skill (e.g. set on another phone)
+        await _loadMySkill();
+        notifyListeners();
+        return null;
+      }
+      if (_isMissingTable(e)) return setupHint;
+      return e.message;
+    } catch (_) {
+      return 'Could not save. Check your internet.';
+    }
+  }
+
+  /// "Done Today" → +10 pts (Work On My Skill) and streak +1.
+  Future<String?> markSkillDone() async {
+    final s = mySkill;
+    if (s == null) return 'Set your skill first.';
+    if (s.isComplete) return 'Your 60-day challenge is complete!';
+    if (!s.doneToday) {
+      final newStreak = s.lastDoneDate == ScoreService.yesterdayKey() ? s.streakStored + 1 : 1;
+      try {
+        final row = await supabase
+            .from('permanent_skills')
+            .update({
+              'streak': newStreak,
+              'last_done_date': ScoreService.todayKey(),
+              'current_day': s.dayShown,
+            })
+            .eq('id', s.id)
+            .select()
+            .single();
+        mySkill = Skill.fromMap(row);
+      } on PostgrestException catch (e) {
+        return e.message;
+      } catch (_) {
+        return 'Could not save. Check your internet.';
+      }
+    }
+    if (!myToday.skillDone) updateToday((e) => e.skillDone = true);
+    notifyListeners();
+    return null;
+  }
+
+  /// After 60 days: close the finished challenge so a new skill can be set.
+  Future<String?> startNewSkill() async {
+    final s = mySkill;
+    if (s == null) return null;
+    if (!s.isComplete) return 'Your skill is locked until the 60 days are finished.';
+    try {
+      await supabase.from('permanent_skills').update({'is_active': false}).eq('id', s.id);
+      mySkill = null;
+      notifyListeners();
+      return null;
+    } on PostgrestException catch (e) {
+      return e.message;
+    } catch (_) {
+      return 'Could not save. Check your internet.';
+    }
+  }
+
+  // =================== V3: CHAT + SNAPS ===================
+  void _subscribeChat(String? pid, {bool force = false}) {
+    if (!force && pid == _chatFor) return;
+    _chatSub?.cancel();
+    _chatSub = null;
+    _chatFor = pid;
+    messages = [];
+    chatReady = false;
+    chatError = null;
+    if (pid == null) return;
+    _chatSub = supabase
+        .from('messages')
+        .stream(primaryKey: ['id'])
+        .eq('pair_id', pid)
+        .order('created_at', ascending: false)
+        .limit(200)
+        .listen((rows) {
+      messages = rows.map(ChatMessage.fromMap).toList()
+        ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
+      chatReady = true;
+      chatError = null;
+      notifyListeners();
+    }, onError: (_) {
+      chatReady = true;
+      chatError = 'Chat could not load. Run supabase/duodeen_v3.sql and check your internet.';
+      notifyListeners();
+    });
+  }
+
+  String senderName(String senderId) => senderId == uid ? 'You' : partnerName;
+
+  Future<String?> sendText(String text) async {
+    final pid = me?.pairId;
+    if (pid == null) return 'Pair with your partner to chat';
+    final t = text.trim();
+    if (t.isEmpty) return null;
+    try {
+      await supabase.from('messages').insert({'pair_id': pid, 'sender_id': uid, 'text': t, 'type': 'text'});
+      return null;
+    } on PostgrestException catch (e) {
+      return e.message;
+    } catch (_) {
+      return 'Not sent. Check your internet.';
+    }
+  }
+
+  Future<String?> sendSnap(Uint8List bytes, {String ext = 'jpg'}) async {
+    final pid = me?.pairId;
+    if (pid == null) return 'Pair with your partner to send snaps';
+    final safeExt = ext.toLowerCase() == 'png' ? 'png' : 'jpg';
+    final path = '$pid/${uid}_${DateTime.now().millisecondsSinceEpoch}.$safeExt';
+    try {
+      await supabase.storage.from('snaps').uploadBinary(
+            path,
+            bytes,
+            fileOptions: FileOptions(contentType: safeExt == 'png' ? 'image/png' : 'image/jpeg'),
+          );
+      final url = supabase.storage.from('snaps').getPublicUrl(path);
+      await supabase.from('messages').insert({
+        'pair_id': pid,
+        'sender_id': uid,
+        'text': '📸 Snap',
+        'type': 'snap',
+        'image_url': url,
+      });
+      return null;
+    } on StorageException catch (e) {
+      return 'Snap upload failed: ${e.message}';
+    } on PostgrestException catch (e) {
+      return e.message;
+    } catch (_) {
+      return 'Snap not sent. Check your internet.';
+    }
+  }
+
   // =================== ACCOUNT ===================
   Future<void> logout() async {
     await NotificationService.cancelAll();
@@ -531,3 +789,5 @@ class DuoState extends ChangeNotifier {
 
 /// One shared instance used by every screen.
 final duo = DuoState();
+
+class _SetupNeeded implements Exception {}
