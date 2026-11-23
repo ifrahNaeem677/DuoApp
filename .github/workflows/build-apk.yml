@@ -1,4 +1,4 @@
-name: Build APK
+name: Build APK V2
 
 on:
   push:
@@ -19,12 +19,21 @@ jobs:
         with:
           channel: stable
 
-      # Creates the android/ folder and pubspec.yaml (keeps your lib/ files)
+      - name: Check uploaded files
+        run: |
+          test -f pubspec.yaml || { echo "pubspec.yaml is missing - upload it to the repo"; exit 1; }
+          test -f tool/patch_android.py || { echo "tool/patch_android.py is missing - upload the tool folder"; exit 1; }
+
       - name: Create Flutter project files
         run: |
           flutter create --project-name duodeen --org com.duodeen --platforms android .
           rm -f test/widget_test.dart
-          sed -i 's/android:label="duodeen"/android:label="DuoDeen"/' android/app/src/main/AndroidManifest.xml
+
+      - name: Patch Android settings
+        run: python3 tool/patch_android.py
+
+      - name: Get packages
+        run: flutter pub get
 
       - name: Build APK
         run: flutter build apk --release
